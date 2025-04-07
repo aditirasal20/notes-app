@@ -1,54 +1,68 @@
-import { useEffect, useState } from 'react';
-import { db, auth } from '../firebase';
-import { collection, addDoc, onSnapshot } from 'firebase/firestore';
-import { signOut } from 'firebase/auth';
-import { useRouter } from 'next/router';
+import { useEffect, useState } from "react";
+import { auth, db } from "../firebase";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { collection, addDoc, getDocs } from "firebase/firestore";
 
-export default function Notes() {
+export default function NotesPage() {
+  const [user, setUser] = useState(null);
+  const [note, setNote] = useState("");
   const [notes, setNotes] = useState([]);
-  const [note, setNote] = useState('');
-  const router = useRouter();
-
-  const notesRef = collection(db, "notes");
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(notesRef, (snapshot) => {
-      const notesData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setNotes(notesData);
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setUser(user);
+        const snapshot = await getDocs(collection(db, "notes"));
+        setNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      } else {
+        window.location.href = "/login";
+      }
     });
-
-    return unsubscribe;
+    return () => unsubscribe();
   }, []);
 
-  const addNote = async () => {
-    await addDoc(notesRef, {
-      content: note,
-      uid: auth.currentUser.uid,
-      email: auth.currentUser.email,
-      created: new Date()
+  const handleAddNote = async () => {
+    if (note.trim() === "") return;
+    await addDoc(collection(db, "notes"), {
+      text: note,
+      user: user.displayName,
+      email: user.email,
     });
-    setNote('');
-  };
-
-  const logout = () => {
-    signOut(auth);
-    router.push('/login');
+    setNote("");
+    const snapshot = await getDocs(collection(db, "notes"));
+    setNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
   };
 
   return (
-    <div>
-      <h1>Notes</h1>
-      <button onClick={logout}>Logout</button>
-      <input placeholder="Type a note..." value={note} onChange={e => setNote(e.target.value)} />
-      <button onClick={addNote}>Add Note</button>
-      <ul>
-        {notes.map(n => (
-          <li key={n.id}>{n.content} — <i>{n.email}</i></li>
-        ))}
-      </ul>
+    <div className="p-6">
+      <div className="flex justify-between items-center">
+        <h1 className="text-xl font-bold">Welcome {user?.displayName}</h1>
+        <button onClick={() => signOut(auth)} className="bg-red-500 text-white px-3 py-1 rounded">
+          Sign Out
+        </button>
+      </div>
+      <div className="mt-4">
+        <input 
+          type="text" 
+          value={note} 
+          onChange={(e) => setNote(e.target.value)} 
+          placeholder="Write a note..." 
+          className="border p-2 w-full mb-2"
+        />
+        <button onClick={handleAddNote} className="bg-green-500 text-white px-4 py-2 rounded">
+          Add Note
+        </button>
+      </div>
+      <div className="mt-6">
+        <h2 className="text-lg font-semibold">All Notes</h2>
+        <ul className="list-disc pl-6">
+          {notes.map(n => (
+            <li key={n.id}>
+              <strong>{n.user}:</strong> {n.text}
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }
